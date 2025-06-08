@@ -20,7 +20,18 @@ class HousingApp:
         self.create_meters_tab()
         self.create_reports_tab()
 
-def create_accounts_tab(self):
+
+    def load_data(self, filename):
+        if os.path.exists(filename):
+            with open(filename, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return []
+    
+    def save_data(self, filename, data):
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+
+    def create_accounts_tab(self):
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Лицевые счета")
 
@@ -52,3 +63,59 @@ def create_accounts_tab(self):
         self.accounts_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         self.refresh_accounts()
+
+    def refresh_accounts(self):
+        for item in self.accounts_tree.get_children():
+            self.accounts_tree.delete(item)
+            
+        for account in self.accounts:
+            self.accounts_tree.insert("", tk.END, values=(
+                account["id"],
+                account["address"],
+                account["owner"],
+                f"{account['balance']:.2f} руб.",
+                "Да" if account["subsidy"] else "Нет",
+                account["last_payment"]
+            ))
+
+    def add_account(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Добавить лицевой счет")
+        dialog.geometry("400x300")
+        
+        ttk.Label(dialog, text="№ счета:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.E)
+        id_entry = ttk.Entry(dialog)
+        id_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        ttk.Label(dialog, text="Адрес:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.E)
+        address_entry = ttk.Entry(dialog)
+        address_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        ttk.Label(dialog, text="Владелец:").grid(row=2, column=0, padx=5, pady=5, sticky=tk.E)
+        owner_entry = ttk.Entry(dialog)
+        owner_entry.grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        ttk.Label(dialog, text="Начальный баланс:").grid(row=3, column=0, padx=5, pady=5, sticky=tk.E)
+        balance_entry = ttk.Entry(dialog)
+        balance_entry.grid(row=3, column=1, padx=5, pady=5, sticky=tk.W)
+        balance_entry.insert(0, "0.00")
+        
+        subsidy_var = tk.BooleanVar()
+        ttk.Checkbutton(dialog, text="Субсидия", variable=subsidy_var).grid(row=4, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        def save():
+            new_account = {
+                "id": id_entry.get(),
+                "address": address_entry.get(),
+                "owner": owner_entry.get(),
+                "balance": float(balance_entry.get()),
+                "subsidy": subsidy_var.get(),
+                "last_payment": "-"
+            }
+            self.accounts.append(new_account)
+            self.save_data("accounts.json", self.accounts)
+            self.refresh_accounts()
+            dialog.destroy()
+            messagebox.showinfo("Успех", "Лицевой счет успешно добавлен")
+        
+        ttk.Button(dialog, text="Сохранить", command=save).grid(row=5, column=1, padx=5, pady=10, sticky=tk.E)
