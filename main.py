@@ -257,3 +257,58 @@ class HousingApp:
                 request["status"],
                 request.get("contractor", "-")
             ))
+
+def add_request(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Добавить заявку")
+        dialog.geometry("500x300")
+        
+        ttk.Label(dialog, text="Адрес:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.E)
+        address_entry = ttk.Entry(dialog)
+        address_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        ttk.Label(dialog, text="Проблема:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.E)
+        problem_entry = tk.Text(dialog, height=5, width=40)
+        problem_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        ttk.Label(dialog, text="Контактное лицо:").grid(row=2, column=0, padx=5, pady=5, sticky=tk.E)
+        contact_entry = ttk.Entry(dialog)
+        contact_entry.grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        def save():
+            new_request = {
+                "id": f"REQ-{len(self.requests) + 1:04d}",
+                "date": datetime.now().strftime("%d.%m.%Y"),
+                "address": address_entry.get(),
+                "problem": problem_entry.get("1.0", tk.END).strip(),
+                "contact": contact_entry.get(),
+                "status": "Открыта",
+                "contractor": ""
+            }
+            self.requests.append(new_request)
+            self.save_data("requests.json", self.requests)
+            self.refresh_requests()
+            dialog.destroy()
+            messagebox.showinfo("Успех", "Заявка успешно добавлена")
+        
+        ttk.Button(dialog, text="Сохранить", command=save).grid(row=3, column=1, padx=5, pady=10, sticky=tk.E)
+    
+    def close_request(self):
+        selected = self.requests_tree.selection()
+        if not selected:
+            messagebox.showwarning("Ошибка", "Выберите заявку для закрытия")
+            return
+            
+        request_id = self.requests_tree.item(selected[0])["values"][0]
+        
+        for request in self.requests:
+            if request["id"] == request_id:
+                if request["status"] == "Закрыта":
+                    messagebox.showinfo("Информация", "Эта заявка уже закрыта")
+                    return
+                
+                request["status"] = "Закрыта"
+                self.save_data("requests.json", self.requests)
+                self.refresh_requests()
+                messagebox.showinfo("Успех", "Заявка закрыта")
+                return
