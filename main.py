@@ -119,3 +119,95 @@ class HousingApp:
             messagebox.showinfo("Успех", "Лицевой счет успешно добавлен")
         
         ttk.Button(dialog, text="Сохранить", command=save).grid(row=5, column=1, padx=5, pady=10, sticky=tk.E)
+        
+ def delete_account(self):
+        selected = self.accounts_tree.selection()
+        if not selected:
+            messagebox.showwarning("Ошибка", "Выберите счет для удаления")
+            return
+            
+        account_id = self.accounts_tree.item(selected[0])["values"][0]
+        
+        if messagebox.askyesno("Подтверждение", f"Удалить счет №{account_id}?"):
+            self.accounts = [acc for acc in self.accounts if acc["id"] != account_id]
+            self.save_data("accounts.json", self.accounts)
+            self.refresh_accounts()
+    
+    def generate_receipt(self):
+        selected = self.accounts_tree.selection()
+        if not selected:
+            messagebox.showwarning("Ошибка", "Выберите счет для генерации квитанции")
+            return
+            
+        account_data = self.accounts_tree.item(selected[0])["values"]
+        account_id = account_data[0]
+
+        account = next(acc for acc in self.accounts if acc["id"] == account_id)
+
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.add_font('DejaVu', '', 'DejaVuSansCondensed.ttf', uni=True)
+        pdf.set_font('DejaVu', '', 14)
+        
+        pdf.cell(0, 10, "Квитанция на оплату жилищно-коммунальных услуг", 0, 1, 'C')
+        pdf.ln(10)
+        
+        pdf.set_font('DejaVu', '', 12)
+        pdf.cell(40, 10, "№ счета:", 0, 0)
+        pdf.cell(0, 10, account["id"], 0, 1)
+        
+        pdf.cell(40, 10, "Адрес:", 0, 0)
+        pdf.cell(0, 10, account["address"], 0, 1)
+        
+        pdf.cell(40, 10, "Владелец:", 0, 0)
+        pdf.cell(0, 10, account["owner"], 0, 1)
+        pdf.ln(10)
+        
+        pdf.cell(0, 10, "Начисления:", 0, 1)
+        pdf.ln(5)
+
+        pdf.set_font('DejaVu', '', 10)
+        col_widths = [80, 40, 40, 40]
+
+        pdf.cell(col_widths[0], 10, "Услуга", 1, 0, 'C')
+        pdf.cell(col_widths[1], 10, "Тариф", 1, 0, 'C')
+        pdf.cell(col_widths[2], 10, "Объем", 1, 0, 'C')
+        pdf.cell(col_widths[3], 10, "Сумма", 1, 1, 'C')
+
+        services = [
+            ("Холодная вода", 35.78, 5.2),
+            ("Горячая вода", 150.25, 3.8),
+            ("Электричество", 4.25, 120),
+            ("Отопление", 25.60, 45.3)
+        ]
+        
+        total = 0
+        for service in services:
+            amount = service[1] * service[2]
+            total += amount
+            
+            pdf.cell(col_widths[0], 10, service[0], 1)
+            pdf.cell(col_widths[1], 10, f"{service[1]:.2f} руб.", 1, 0, 'R')
+            pdf.cell(col_widths[2], 10, f"{service[2]:.1f}", 1, 0, 'R')
+            pdf.cell(col_widths[3], 10, f"{amount:.2f} руб.", 1, 1, 'R')
+        
+        pdf.ln(5)
+        pdf.set_font('DejaVu', '', 12)
+        pdf.cell(0, 10, f"Итого к оплате: {total:.2f} руб.", 0, 1, 'R')
+        
+        if account["subsidy"]:
+            pdf.cell(0, 10, "С учетом субсидии: 30%", 0, 1, 'R')
+            pdf.cell(0, 10, f"К оплате: {total * 0.7:.2f} руб.", 0, 1, 'R')
+        
+        pdf.ln(10)
+        pdf.cell(0, 10, f"Дата формирования: {datetime.now().strftime('%d.%m.%Y')}", 0, 1)
+
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF files", "*.pdf")],
+            initialfile=f"Квитанция_{account_id}.pdf"
+        )
+        
+        if filename:
+            pdf.output(filename)
+            messagebox.showinfo("Успех", f"Квитанция сохранена как {filename}")
