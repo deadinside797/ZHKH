@@ -211,3 +211,49 @@ class HousingApp:
         if filename:
             pdf.output(filename)
             messagebox.showinfo("Успех", f"Квитанция сохранена как {filename}")
+    def create_requests_tab(self):
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Диспетчеризация")
+
+        control_frame = ttk.LabelFrame(tab, text="Управление")
+        control_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(control_frame, text="Добавить заявку", command=self.add_request).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Закрыть заявку", command=self.close_request).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Назначить подрядчика", command=self.assign_contractor).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Обновить", command=self.refresh_requests).pack(side=tk.LEFT, padx=5)
+
+        columns = ("id", "date", "address", "problem", "status", "contractor")
+        self.requests_tree = ttk.Treeview(tab, columns=columns, show="headings", height=20)
+        
+        self.requests_tree.heading("id", text="№ заявки")
+        self.requests_tree.heading("date", text="Дата")
+        self.requests_tree.heading("address", text="Адрес")
+        self.requests_tree.heading("problem", text="Проблема")
+        self.requests_tree.heading("status", text="Статус")
+        self.requests_tree.heading("contractor", text="Подрядчик")
+        
+        self.requests_tree.column("id", width=80)
+        self.requests_tree.column("date", width=100)
+        self.requests_tree.column("address", width=150)
+        self.requests_tree.column("problem", width=250)
+        self.requests_tree.column("status", width=100)
+        self.requests_tree.column("contractor", width=150)
+        
+        self.requests_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        self.refresh_requests()
+    
+    def refresh_requests(self):
+        for item in self.requests_tree.get_children():
+            self.requests_tree.delete(item)
+            
+        for request in self.requests:
+            self.requests_tree.insert("", tk.END, values=(
+                request["id"],
+                request["date"],
+                request["address"],
+                request["problem"],
+                request["status"],
+                request.get("contractor", "-")
+            ))
