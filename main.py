@@ -402,3 +402,44 @@ def refresh_meters(self):
                 last_reading,
                 last_date
             ))
+
+ def add_meter(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Добавить счетчик")
+        dialog.geometry("400x250")
+        
+        ttk.Label(dialog, text="№ счетчика:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.E)
+        id_entry = ttk.Entry(dialog)
+        id_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        ttk.Label(dialog, text="Тип:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.E)
+        type_combobox = ttk.Combobox(dialog, values=["Холодная вода", "Горячая вода", "Электричество", "Газ", "Отопление"])
+        type_combobox.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        ttk.Label(dialog, text="Адрес:").grid(row=2, column=0, padx=5, pady=5, sticky=tk.E)
+        address_entry = ttk.Entry(dialog)
+        address_entry.grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        ttk.Label(dialog, text="Начальные показания:").grid(row=3, column=0, padx=5, pady=5, sticky=tk.E)
+        reading_entry = ttk.Entry(dialog)
+        reading_entry.grid(row=3, column=1, padx=5, pady=5, sticky=tk.W)
+        reading_entry.insert(0, "0")
+
+        def save():
+            new_meter = {
+                "id": id_entry.get(),
+                "type": type_combobox.get(),
+                "address": address_entry.get(),
+                "readings": [{
+                    "date": datetime.now().strftime("%d.%m.%Y"),
+                    "value": float(reading_entry.get())
+                }]
+            }
+            self.meters.append(new_meter)
+            self.save_data("meters.json", self.meters)
+            self.refresh_meters()
+            dialog.destroy()
+            messagebox.showinfo("Успех", "Счетчик успешно добавлен")
+        
+        ttk.Button(dialog, text="Сохранить", command=save).grid(row=4, column=1, padx=5, pady=10, sticky=tk.E)
+    
