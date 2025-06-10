@@ -312,3 +312,93 @@ def add_request(self):
                 self.refresh_requests()
                 messagebox.showinfo("Успех", "Заявка закрыта")
                 return
+
+
+def assign_contractor(self):
+        selected = self.requests_tree.selection()
+        if not selected:
+            messagebox.showwarning("Ошибка", "Выберите заявку")
+            return
+            
+        request_id = self.requests_tree.item(selected[0])["values"][0]
+        
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Назначить подрядчика")
+        dialog.geometry("400x200")
+        
+        ttk.Label(dialog, text="Выберите подрядчика:").pack(pady=10)
+        
+        contractor_var = tk.StringVar()
+        contractors = [c["name"] for c in self.contractors]
+        contractor_combobox = ttk.Combobox(dialog, textvariable=contractor_var, values=contractors)
+        contractor_combobox.pack(pady=5)
+        
+        def save():
+            contractor = contractor_var.get()
+            if not contractor:
+                messagebox.showwarning("Ошибка", "Выберите подрядчика")
+                return
+                
+            for request in self.requests:
+                if request["id"] == request_id:
+                    request["contractor"] = contractor
+                    request["status"] = "В работе"
+                    self.save_data("requests.json", self.requests)
+                    self.refresh_requests()
+                    dialog.destroy()
+                    messagebox.showinfo("Успех", f"Подрядчик {contractor} назначен")
+                    return
+        
+        ttk.Button(dialog, text="Назначить", command=save).pack(pady=10)
+    
+    def create_meters_tab(self):
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Учет ресурсов")
+
+        control_frame = ttk.LabelFrame(tab, text="Управление")
+        control_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(control_frame, text="Добавить счетчик", command=self.add_meter).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Внести показания", command=self.add_meter_reading).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Анализ расхода", command=self.analyze_consumption).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Обновить", command=self.refresh_meters).pack(side=tk.LEFT, padx=5)
+
+        columns = ("id", "type", "address", "last_reading", "last_date")
+        self.meters_tree = ttk.Treeview(tab, columns=columns, show="headings", height=20)
+        
+        self.meters_tree.heading("id", text="№ счетчика")
+        self.meters_tree.heading("type", text="Тип")
+        self.meters_tree.heading("address", text="Адрес")
+        self.meters_tree.heading("last_reading", text="Последние показания")
+        self.meters_tree.heading("last_date", text="Дата")
+        
+        self.meters_tree.column("id", width=100)
+        self.meters_tree.column("type", width=120)
+        self.meters_tree.column("address", width=150)
+        self.meters_tree.column("last_reading", width=120)
+        self.meters_tree.column("last_date", width=100)
+        
+        self.meters_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        self.refresh_meters()
+
+def refresh_meters(self):
+        for item in self.meters_tree.get_children():
+            self.meters_tree.delete(item)
+            
+        for meter in self.meters:
+            readings = meter.get("readings", [])
+            last_reading = "-"
+            last_date = "-"
+            
+            if readings:
+                last_reading = readings[-1]["value"]
+                last_date = readings[-1]["date"]
+            
+            self.meters_tree.insert("", tk.END, values=(
+                meter["id"],
+                meter["type"],
+                meter["address"],
+                last_reading,
+                last_date
+            ))
