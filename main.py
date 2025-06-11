@@ -443,3 +443,44 @@ def refresh_meters(self):
         
         ttk.Button(dialog, text="Сохранить", command=save).grid(row=4, column=1, padx=5, pady=10, sticky=tk.E)
     
+def add_meter_reading(self):
+        selected = self.meters_tree.selection()
+        if not selected:
+            messagebox.showwarning("Ошибка", "Выберите счетчик")
+            return
+            
+        meter_id = self.meters_tree.item(selected[0])["values"][0]
+        
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Внести показания")
+        dialog.geometry("300x200")
+        
+        meter = next(m for m in self.meters if m["id"] == meter_id)
+        
+        ttk.Label(dialog, text=f"Счетчик: {meter['id']}").pack(pady=5)
+        ttk.Label(dialog, text=f"Тип: {meter['type']}").pack(pady=5)
+        ttk.Label(dialog, text=f"Адрес: {meter['address']}").pack(pady=5)
+        
+        ttk.Label(dialog, text="Показания:").pack(pady=5)
+        reading_entry = ttk.Entry(dialog)
+        reading_entry.pack(pady=5)
+        
+        def save():
+            try:
+                reading = float(reading_entry.get())
+            except ValueError:
+                messagebox.showerror("Ошибка", "Введите корректное число")
+                return
+                
+            meter["readings"].append({
+                "date": datetime.now().strftime("%d.%m.%Y"),
+                "value": reading
+            })
+            
+            self.save_data("meters.json", self.meters)
+            self.refresh_meters()
+            dialog.destroy()
+            messagebox.showinfo("Успех", "Показания сохранены")
+        
+        ttk.Button(dialog, text="Сохранить", command=save).pack(pady=10)
+    
