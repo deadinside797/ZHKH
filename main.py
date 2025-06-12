@@ -484,3 +484,62 @@ def add_meter_reading(self):
         
         ttk.Button(dialog, text="Сохранить", command=save).pack(pady=10)
     
+def analyze_consumption(self):
+        selected = self.meters_tree.selection()
+        if not selected:
+            messagebox.showwarning("Ошибка", "Выберите счетчик")
+            return
+            
+        meter_id = self.meters_tree.item(selected[0])["values"][0]
+        meter = next(m for m in self.meters if m["id"] == meter_id)
+        
+        if len(meter.get("readings", [])) < 2:
+            messagebox.showinfo("Информация", "Недостаточно данных для анализа")
+            return
+
+        dates = [r["date"] for r in meter["readings"]]
+        values = [r["value"] for r in meter["readings"]]
+
+        consumption = []
+        for i in range(1, len(values)):
+            consumption.append(values[i] - values[i-1])
+
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6))
+
+        ax1.plot(dates, values, 'o-')
+        ax1.set_title(f"Показания счетчика {meter_id}")
+        ax1.set_ylabel("Показания")
+        ax1.grid(True)
+
+        ax2.bar(dates[1:], consumption)
+        ax2.set_title("Потребление между показаниями")
+        ax2.set_ylabel("Потребление")
+        ax2.grid(True)
+        
+        plt.tight_layout()
+
+        graph_window = tk.Toplevel(self.root)
+        graph_window.title(f"Анализ потребления - {meter_id}")
+        
+        canvas = FigureCanvasTkAgg(fig, master=graph_window)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+    
+    def create_reports_tab(self):
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Отчетность")
+
+        control_frame = ttk.LabelFrame(tab, text="Отчеты")
+        control_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(control_frame, text="Отчет по платежам", command=self.generate_payments_report).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Отчет по заявкам", command=self.generate_requests_report).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Отчет по счетчикам", command=self.generate_meters_report).pack(side=tk.LEFT, padx=5)
+
+        self.report_text = tk.Text(tab, wrap=tk.WORD, height=20)
+        self.report_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        scrollbar = ttk.Scrollbar(tab, command=self.report_text.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.report_text.config(yscrollcommand=scrollbar.set)
+    
