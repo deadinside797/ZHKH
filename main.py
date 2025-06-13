@@ -543,3 +543,61 @@ def analyze_consumption(self):
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.report_text.config(yscrollcommand=scrollbar.set)
     
+def generate_payments_report(self):
+        total_balance = sum(acc["balance"] for acc in self.accounts)
+        subsidy_count = sum(1 for acc in self.accounts if acc["subsidy"])
+        
+        report = f"Отчет по платежам\nДата формирования: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
+        report += f"Всего лицевых счетов: {len(self.accounts)}\n"
+        report += f"Субсидии предоставлены: {subsidy_count} счетам\n"
+        report += f"Общая сумма задолженности: {total_balance:.2f} руб.\n\n"
+        
+        report += "Топ-5 должников:\n"
+        debtors = sorted(self.accounts, key=lambda x: x["balance"], reverse=True)[:5]
+        for i, debtor in enumerate(debtors, 1):
+            report += f"{i}. {debtor['address']} ({debtor['owner']}): {debtor['balance']:.2f} руб.\n"
+        
+        self.report_text.delete(1.0, tk.END)
+        self.report_text.insert(tk.END, report)
+    
+    def generate_requests_report(self):
+        open_count = sum(1 for req in self.requests if req["status"] == "Открыта")
+        in_progress_count = sum(1 for req in self.requests if req["status"] == "В работе")
+        closed_count = sum(1 for req in self.requests if req["status"] == "Закрыта")
+        
+        report = f"Отчет по заявкам\nДата формирования: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
+        report += f"Всего заявок: {len(self.requests)}\n"
+        report += f"Открытые: {open_count}\n"
+        report += f"В работе: {in_progress_count}\n"
+        report += f"Закрытые: {closed_count}\n\n"
+        
+        if self.contractors:
+            report += "Заявки по подрядчикам:\n"
+            for contractor in self.contractors:
+                count = sum(1 for req in self.requests if req.get("contractor") == contractor["name"])
+                report += f"{contractor['name']}: {count} заявок\n"
+        
+        self.report_text.delete(1.0, tk.END)
+        self.report_text.insert(tk.END, report)
+    
+    def generate_meters_report(self):
+        meter_types = {}
+        for meter in self.meters:
+            if meter["type"] not in meter_types:
+                meter_types[meter["type"]] = 0
+            meter_types[meter["type"]] += 1
+        
+        report = f"Отчет по счетчикам\nДата формирования: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
+        report += f"Всего счетчиков: {len(self.meters)}\n\n"
+        
+        report += "Количество по типам:\n"
+        for meter_type, count in meter_types.items():
+            report += f"{meter_type}: {count}\n"
+        
+        self.report_text.delete(1.0, tk.END)
+        self.report_text.insert(tk.END, report)
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = HousingApp(root)
+    root.mainloop()
