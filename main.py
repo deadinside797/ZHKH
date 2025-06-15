@@ -1,11 +1,13 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from datetime import datetime
-import json
-import os
+import sqlite3
 from fpdf import FPDF
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from fpdf import FPDF
+from fpdf.enums import XPos, YPos
+import os
 
 class HousingApp:
     def __init__(self, root):
@@ -13,11 +15,9 @@ class HousingApp:
         self.root.title("Система учета для ЖКХ")
         self.root.geometry("1200x700")
 
-        self.accounts = self.load_data("accounts.json")
-        self.requests = self.load_data("requests.json")
-        self.meters = self.load_data("meters.json")
-        self.contractors = self.load_data("contractors.json")
-
+        self.db_connection = sqlite3.connect('housing.db')
+        self.create_tables()
+        
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill=tk.BOTH, expand=True)
 
@@ -25,18 +25,71 @@ class HousingApp:
         self.create_requests_tab()
         self.create_meters_tab()
         self.create_reports_tab()
+        
+    def create_tables(self):
+        cursor = self.db_connection.cursor()
 
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS accounts (
+            id TEXT PRIMARY KEY,
+            address TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            balance REAL DEFAULT 0,
+            subsidy BOOLEAN DEFAULT FALSE,
+            last_payment TEXT
+        )
+        ''')
 
-    def load_data(self, filename):
-        if os.path.exists(filename):
-            with open(filename, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        return []
-    
-    def save_data(self, filename, data):
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS requests (
+            id TEXT PRIMARY KEY,
+            account_id TEXT,
+            date TEXT NOT NULL,
+            address TEXT NOT NULL,
+            problem TEXT NOT NULL,
+            contact TEXT,
+            status TEXT NOT NULL,
+            contractor TEXT,
+            FOREIGN KEY (account_id) REFERENCES accounts(id)
+        )
+        ''')
 
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS meters (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL,
+            address TEXT NOT NULL
+        )
+        ''')
+
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS meter_readings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            meter_id TEXT NOT NULL,
+            date TEXT NOT NULL,
+            value REAL NOT NULL,
+            FOREIGN KEY (meter_id) REFERENCES meters(id)
+        )
+        ''')
+
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS contractors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            specialty TEXT,
+            contact TEXT
+        )
+        ''')
+        
+        self.db_connection.commit()
+
+    def execute_query(self, query, params=(), fetch=False):
+        cursor = self.db_connection.cursor()
+        cursor.execute(query, params)
+        if fetch:
+            return cursor.fetchall()
+        self.db_connection.commit()
+        
     def create_accounts_tab(self):
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Лицевые счета")
@@ -74,14 +127,15 @@ class HousingApp:
         for item in self.accounts_tree.get_children():
             self.accounts_tree.delete(item)
             
-        for account in self.accounts:
+        accounts = self.execute_query("SELECT * FROM accounts", fetch=True)
+        for account in accounts:
             self.accounts_tree.insert("", tk.END, values=(
-                account["id"],
-                account["address"],
-                account["owner"],
-                f"{account['balance']:.2f} руб.",
-                "Да" if account["subsidy"] else "Нет",
-                account["last_payment"]
+                account[0], 
+                account[1], 
+                account[2], 
+                f"{account[3]:.2f} руб.", 
+                "Да" if account[4] else "Нет", 
+                account[5] if account[5] else "-" 
             ))
 
     def add_account(self):
@@ -110,16 +164,17 @@ class HousingApp:
         ttk.Checkbutton(dialog, text="Субсидия", variable=subsidy_var).grid(row=4, column=1, padx=5, pady=5, sticky=tk.W)
         
         def save():
-            new_account = {
-                "id": id_entry.get(),
-                "address": address_entry.get(),
-                "owner": owner_entry.get(),
-                "balance": float(balance_entry.get()),
-                "subsidy": subsidy_var.get(),
-                "last_payment": "-"
-            }
-            self.accounts.append(new_account)
-            self.save_data("accounts.json", self.accounts)
+            self.execute_query(
+                "INSERT INTO accounts VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    id_entry.get(),
+                    address_entry.get(),
+                    owner_entry.get(),
+                    float(balance_entry.get()),
+                    subsidy_var.get(),
+                    "-"
+                )
+            )
             self.refresh_accounts()
             dialog.destroy()
             messagebox.showinfo("Успех", "Лицевой счет успешно добавлен")
@@ -135,8 +190,7 @@ class HousingApp:
         account_id = self.accounts_tree.item(selected[0])["values"][0]
         
         if messagebox.askyesno("Подтверждение", f"Удалить счет №{account_id}?"):
-            self.accounts = [acc for acc in self.accounts if acc["id"] != account_id]
-            self.save_data("accounts.json", self.accounts)
+            self.execute_query("DELETE FROM accounts WHERE id = ?", (account_id,))
             self.refresh_accounts()
     
     def generate_receipt(self):
@@ -144,41 +198,77 @@ class HousingApp:
         if not selected:
             messagebox.showwarning("Ошибка", "Выберите счет для генерации квитанции")
             return
-            
+
         account_data = self.accounts_tree.item(selected[0])["values"]
         account_id = account_data[0]
 
-        account = next(acc for acc in self.accounts if acc["id"] == account_id)
+        account = self.execute_query(
+            "SELECT * FROM accounts WHERE id = ?", 
+            (account_id,), 
+            fetch=True
+        )[0]
 
         pdf = FPDF()
         pdf.add_page()
-        pdf.add_font('DejaVu', '', 'DejaVuSansCondensed.ttf', uni=True)
-        pdf.set_font('DejaVu', '', 14)
-        
-        pdf.cell(0, 10, "Квитанция на оплату жилищно-коммунальных услуг", 0, 1, 'C')
+
+        try:
+            pdf.add_font('DejaVu', '', 'DejaVuSansCondensed.ttf', uni=True)
+            pdf.add_font('DejaVu', 'B', 'DejaVuSansCondensed-Bold.ttf', uni=True)
+            pdf.add_font('DejaVu', 'I', 'DejaVuSansCondensed-Oblique.ttf', uni=True)
+            pdf.set_font('DejaVu', '', 14)
+            self._generate_russian_receipt(pdf, account)
+            filename = f"Квитанция_{account_id}.pdf"
+            success_msg = "Квитанция успешно сохранена"
+        except Exception as e:
+            print(f"Ошибка при использовании DejaVu: {e}")
+            try:
+                pdf.add_font('Arial', '', 'arial.ttf', uni=True)
+                pdf.add_font('Arial', 'B', 'arialbd.ttf', uni=True)
+                pdf.add_font('Arial', 'I', 'ariali.ttf', uni=True)
+                pdf.set_font('Arial', '', 14)
+                self._generate_russian_receipt(pdf, account)
+                filename = f"Квитанция_{account_id}.pdf"
+                success_msg = "Квитанция успешно сохранена"
+            except Exception as e:
+                print(f"Ошибка при использовании Arial: {e}")
+                pdf.set_font('helvetica', '', 14)
+                self._generate_english_receipt(pdf, account)
+                filename = f"Receipt_{account_id}.pdf"
+                success_msg = "Receipt saved successfully"
+
+        save_path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF files", "*.pdf")],
+            initialfile=filename
+        )
+
+        if save_path:
+            pdf.output(save_path)
+            messagebox.showinfo("Успех", success_msg)
+
+    def _generate_russian_receipt(self, pdf, account):
+        from fpdf.enums import XPos, YPos
+
+        pdf.cell(0, 10, "Квитанция ЖКХ", new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')
         pdf.ln(10)
-        
+
         pdf.set_font('DejaVu', '', 12)
-        pdf.cell(40, 10, "№ счета:", 0, 0)
-        pdf.cell(0, 10, account["id"], 0, 1)
-        
-        pdf.cell(40, 10, "Адрес:", 0, 0)
-        pdf.cell(0, 10, account["address"], 0, 1)
-        
-        pdf.cell(40, 10, "Владелец:", 0, 0)
-        pdf.cell(0, 10, account["owner"], 0, 1)
+        self._add_pdf_row(pdf, "№ счета:", str(account[0]))
+        self._add_pdf_row(pdf, "Адрес:", str(account[1]))
+        self._add_pdf_row(pdf, "Владелец:", str(account[2]))
         pdf.ln(10)
-        
-        pdf.cell(0, 10, "Начисления:", 0, 1)
+
+        pdf.set_font('DejaVu', 'B', 12)
+        pdf.cell(0, 10, "Начисления:", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.ln(5)
 
         pdf.set_font('DejaVu', '', 10)
         col_widths = [80, 40, 40, 40]
 
-        pdf.cell(col_widths[0], 10, "Услуга", 1, 0, 'C')
-        pdf.cell(col_widths[1], 10, "Тариф", 1, 0, 'C')
-        pdf.cell(col_widths[2], 10, "Объем", 1, 0, 'C')
-        pdf.cell(col_widths[3], 10, "Сумма", 1, 1, 'C')
+        headers = ["Услуга", "Тариф", "Объем", "Сумма"]
+        for i, header in enumerate(headers):
+            pdf.cell(col_widths[i], 10, header, border=1, align='C')
+        pdf.ln()
 
         services = [
             ("Холодная вода", 35.78, 5.2),
@@ -186,37 +276,89 @@ class HousingApp:
             ("Электричество", 4.25, 120),
             ("Отопление", 25.60, 45.3)
         ]
-        
+
         total = 0
         for service in services:
             amount = service[1] * service[2]
             total += amount
-            
-            pdf.cell(col_widths[0], 10, service[0], 1)
-            pdf.cell(col_widths[1], 10, f"{service[1]:.2f} руб.", 1, 0, 'R')
-            pdf.cell(col_widths[2], 10, f"{service[2]:.1f}", 1, 0, 'R')
-            pdf.cell(col_widths[3], 10, f"{amount:.2f} руб.", 1, 1, 'R')
-        
-        pdf.ln(5)
-        pdf.set_font('DejaVu', '', 12)
-        pdf.cell(0, 10, f"Итого к оплате: {total:.2f} руб.", 0, 1, 'R')
-        
-        if account["subsidy"]:
-            pdf.cell(0, 10, "С учетом субсидии: 30%", 0, 1, 'R')
-            pdf.cell(0, 10, f"К оплате: {total * 0.7:.2f} руб.", 0, 1, 'R')
-        
-        pdf.ln(10)
-        pdf.cell(0, 10, f"Дата формирования: {datetime.now().strftime('%d.%m.%Y')}", 0, 1)
 
-        filename = filedialog.asksaveasfilename(
-            defaultextension=".pdf",
-            filetypes=[("PDF files", "*.pdf")],
-            initialfile=f"Квитанция_{account_id}.pdf"
-        )
-        
-        if filename:
-            pdf.output(filename)
-            messagebox.showinfo("Успех", f"Квитанция сохранена как {filename}")
+            pdf.cell(col_widths[0], 10, service[0], border=1)
+            pdf.cell(col_widths[1], 10, f"{service[1]:.2f} руб.", border=1, align='R')
+            pdf.cell(col_widths[2], 10, f"{service[2]:.1f}", border=1, align='R')
+            pdf.cell(col_widths[3], 10, f"{amount:.2f} руб.", border=1, align='R')
+            pdf.ln()
+
+        pdf.ln(5)
+        pdf.set_font('DejaVu', 'B', 12)
+        pdf.cell(0, 10, f"Итого к оплате: {total:.2f} руб.", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+        if account[4]:
+            pdf.cell(0, 10, "С учетом субсидии 30%:", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            pdf.cell(0, 10, f"К оплате: {total * 0.7:.2f} руб.", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+        pdf.ln(10)
+        pdf.set_font('DejaVu', 'I', 10)
+        pdf.cell(0, 10, f"Дата формирования: {datetime.now().strftime('%d.%m.%Y')}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+    def _generate_english_receipt(self, pdf, account):
+        from fpdf.enums import XPos, YPos
+
+        pdf.cell(0, 10, "Housing Services Receipt", new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')
+        pdf.ln(10)
+
+        pdf.set_font('helvetica', '', 12)
+        self._add_pdf_row(pdf, "Account No:", str(account[0]))
+        self._add_pdf_row(pdf, "Address:", str(account[1]))
+        self._add_pdf_row(pdf, "Owner:", str(account[2]))
+        pdf.ln(10)
+
+        pdf.set_font('helvetica', 'B', 12)
+        pdf.cell(0, 10, "Charges:", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.ln(5)
+
+        pdf.set_font('helvetica', '', 10)
+        col_widths = [80, 40, 40, 40]
+
+        headers = ["Service", "Rate", "Amount", "Total"]
+        for i, header in enumerate(headers):
+            pdf.cell(col_widths[i], 10, header, border=1, align='C')
+        pdf.ln()
+
+        services = [
+            ("Cold water", 35.78, 5.2),
+            ("Hot water", 150.25, 3.8),
+            ("Electricity", 4.25, 120),
+            ("Heating", 25.60, 45.3)
+        ]
+
+        total = 0
+        for service in services:
+            amount = service[1] * service[2]
+            total += amount
+
+            pdf.cell(col_widths[0], 10, service[0], border=1)
+            pdf.cell(col_widths[1], 10, f"{service[1]:.2f} RUB", border=1, align='R')
+            pdf.cell(col_widths[2], 10, f"{service[2]:.1f}", border=1, align='R')
+            pdf.cell(col_widths[3], 10, f"{amount:.2f} RUB", border=1, align='R')
+            pdf.ln()
+
+        pdf.ln(5)
+        pdf.set_font('helvetica', 'B', 12)
+        pdf.cell(0, 10, f"Total amount: {total:.2f} RUB", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+        if account[4]:
+            pdf.cell(0, 10, "With 30% subsidy:", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            pdf.cell(0, 10, f"Amount due: {total * 0.7:.2f} RUB", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+        pdf.ln(10)
+        pdf.set_font('helvetica', 'I', 10)
+        pdf.cell(0, 10, f"Date: {datetime.now().strftime('%d.%m.%Y')}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+    def _add_pdf_row(self, pdf, label, value):
+        from fpdf.enums import XPos, YPos
+        pdf.cell(40, 10, label)
+        pdf.cell(0, 10, value, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
     def create_requests_tab(self):
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Диспетчеризация")
@@ -254,14 +396,15 @@ class HousingApp:
         for item in self.requests_tree.get_children():
             self.requests_tree.delete(item)
             
-        for request in self.requests:
+        requests = self.execute_query("SELECT * FROM requests", fetch=True)
+        for request in requests:
             self.requests_tree.insert("", tk.END, values=(
-                request["id"],
-                request["date"],
-                request["address"],
-                request["problem"],
-                request["status"],
-                request.get("contractor", "-")
+                request[0], 
+                request[2], 
+                request[3], 
+                request[4], 
+                request[6], 
+                request[7] if request[7] else "-"
             ))
 
     def add_request(self):
@@ -282,17 +425,21 @@ class HousingApp:
         contact_entry.grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
         
         def save():
-            new_request = {
-                "id": f"REQ-{len(self.requests) + 1:04d}",
-                "date": datetime.now().strftime("%d.%m.%Y"),
-                "address": address_entry.get(),
-                "problem": problem_entry.get("1.0", tk.END).strip(),
-                "contact": contact_entry.get(),
-                "status": "Открыта",
-                "contractor": ""
-            }
-            self.requests.append(new_request)
-            self.save_data("requests.json", self.requests)
+            request_id = f"REQ-{len(self.execute_query('SELECT * FROM requests', fetch=True)) + 1:04d}"
+            
+            self.execute_query(
+                "INSERT INTO requests VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    request_id,
+                    None,
+                    datetime.now().strftime("%d.%m.%Y"),
+                    address_entry.get(),
+                    problem_entry.get("1.0", tk.END).strip(),
+                    contact_entry.get(),
+                    "Открыта",
+                    None
+                )
+            )
             self.refresh_requests()
             dialog.destroy()
             messagebox.showinfo("Успех", "Заявка успешно добавлена")
@@ -307,18 +454,22 @@ class HousingApp:
             
         request_id = self.requests_tree.item(selected[0])["values"][0]
         
-        for request in self.requests:
-            if request["id"] == request_id:
-                if request["status"] == "Закрыта":
-                    messagebox.showinfo("Информация", "Эта заявка уже закрыта")
-                    return
-                
-                request["status"] = "Закрыта"
-                self.save_data("requests.json", self.requests)
-                self.refresh_requests()
-                messagebox.showinfo("Успех", "Заявка закрыта")
-                return
-
+        status = self.execute_query(
+            "SELECT status FROM requests WHERE id = ?", 
+            (request_id,), 
+            fetch=True
+        )[0][0]
+        
+        if status == "Закрыта":
+            messagebox.showinfo("Информация", "Эта заявка уже закрыта")
+            return
+        
+        self.execute_query(
+            "UPDATE requests SET status = ? WHERE id = ?",
+            ("Закрыта", request_id)
+        )
+        self.refresh_requests()
+        messagebox.showinfo("Успех", "Заявка закрыта")
 
     def assign_contractor(self):
         selected = self.requests_tree.selection()
@@ -335,7 +486,7 @@ class HousingApp:
         ttk.Label(dialog, text="Выберите подрядчика:").pack(pady=10)
         
         contractor_var = tk.StringVar()
-        contractors = [c["name"] for c in self.contractors]
+        contractors = [c[1] for c in self.execute_query("SELECT * FROM contractors", fetch=True)]
         contractor_combobox = ttk.Combobox(dialog, textvariable=contractor_var, values=contractors)
         contractor_combobox.pack(pady=5)
         
@@ -345,15 +496,13 @@ class HousingApp:
                 messagebox.showwarning("Ошибка", "Выберите подрядчика")
                 return
                 
-            for request in self.requests:
-                if request["id"] == request_id:
-                    request["contractor"] = contractor
-                    request["status"] = "В работе"
-                    self.save_data("requests.json", self.requests)
-                    self.refresh_requests()
-                    dialog.destroy()
-                    messagebox.showinfo("Успех", f"Подрядчик {contractor} назначен")
-                    return
+            self.execute_query(
+                "UPDATE requests SET contractor = ?, status = ? WHERE id = ?",
+                (contractor, "В работе", request_id)
+            )
+            self.refresh_requests()
+            dialog.destroy()
+            messagebox.showinfo("Успех", f"Подрядчик {contractor} назначен")
         
         ttk.Button(dialog, text="Назначить", command=save).pack(pady=10)
     
@@ -392,21 +541,27 @@ class HousingApp:
         for item in self.meters_tree.get_children():
             self.meters_tree.delete(item)
             
-        for meter in self.meters:
-            readings = meter.get("readings", [])
-            last_reading = "-"
-            last_date = "-"
+        meters = self.execute_query("SELECT * FROM meters", fetch=True)
+        for meter in meters:
+            last_reading = self.execute_query(
+                "SELECT date, value FROM meter_readings WHERE meter_id = ? ORDER BY date DESC LIMIT 1",
+                (meter[0],),
+                fetch=True
+            )
             
-            if readings:
-                last_reading = readings[-1]["value"]
-                last_date = readings[-1]["date"]
+            last_reading_value = "-"
+            last_reading_date = "-"
+            
+            if last_reading:
+                last_reading_date = last_reading[0][0]
+                last_reading_value = last_reading[0][1]
             
             self.meters_tree.insert("", tk.END, values=(
-                meter["id"],
-                meter["type"],
-                meter["address"],
-                last_reading,
-                last_date
+                meter[0],
+                meter[1],
+                meter[2], 
+                last_reading_value,
+                last_reading_date
             ))
 
     def add_meter(self):
@@ -432,17 +587,18 @@ class HousingApp:
         reading_entry.insert(0, "0")
 
         def save():
-            new_meter = {
-                "id": id_entry.get(),
-                "type": type_combobox.get(),
-                "address": address_entry.get(),
-                "readings": [{
-                    "date": datetime.now().strftime("%d.%m.%Y"),
-                    "value": float(reading_entry.get())
-                }]
-            }
-            self.meters.append(new_meter)
-            self.save_data("meters.json", self.meters)
+            meter_id = id_entry.get()
+
+            self.execute_query(
+                "INSERT INTO meters VALUES (?, ?, ?)",
+                (meter_id, type_combobox.get(), address_entry.get())
+            )
+
+            self.execute_query(
+                "INSERT INTO meter_readings (meter_id, date, value) VALUES (?, ?, ?)",
+                (meter_id, datetime.now().strftime("%d.%m.%Y"), float(reading_entry.get()))
+            )
+            
             self.refresh_meters()
             dialog.destroy()
             messagebox.showinfo("Успех", "Счетчик успешно добавлен")
@@ -461,11 +617,15 @@ class HousingApp:
         dialog.title("Внести показания")
         dialog.geometry("300x200")
         
-        meter = next(m for m in self.meters if m["id"] == meter_id)
+        meter = self.execute_query(
+            "SELECT * FROM meters WHERE id = ?", 
+            (meter_id,), 
+            fetch=True
+        )[0]
         
-        ttk.Label(dialog, text=f"Счетчик: {meter['id']}").pack(pady=5)
-        ttk.Label(dialog, text=f"Тип: {meter['type']}").pack(pady=5)
-        ttk.Label(dialog, text=f"Адрес: {meter['address']}").pack(pady=5)
+        ttk.Label(dialog, text=f"Счетчик: {meter[0]}").pack(pady=5)
+        ttk.Label(dialog, text=f"Тип: {meter[1]}").pack(pady=5)
+        ttk.Label(dialog, text=f"Адрес: {meter[2]}").pack(pady=5)
         
         ttk.Label(dialog, text="Показания:").pack(pady=5)
         reading_entry = ttk.Entry(dialog)
@@ -478,12 +638,11 @@ class HousingApp:
                 messagebox.showerror("Ошибка", "Введите корректное число")
                 return
                 
-            meter["readings"].append({
-                "date": datetime.now().strftime("%d.%m.%Y"),
-                "value": reading
-            })
+            self.execute_query(
+                "INSERT INTO meter_readings (meter_id, date, value) VALUES (?, ?, ?)",
+                (meter_id, datetime.now().strftime("%d.%m.%Y"), reading)
+            )
             
-            self.save_data("meters.json", self.meters)
             self.refresh_meters()
             dialog.destroy()
             messagebox.showinfo("Успех", "Показания сохранены")
@@ -497,14 +656,19 @@ class HousingApp:
             return
             
         meter_id = self.meters_tree.item(selected[0])["values"][0]
-        meter = next(m for m in self.meters if m["id"] == meter_id)
         
-        if len(meter.get("readings", [])) < 2:
+        readings = self.execute_query(
+            "SELECT date, value FROM meter_readings WHERE meter_id = ? ORDER BY date",
+            (meter_id,),
+            fetch=True
+        )
+        
+        if len(readings) < 2:
             messagebox.showinfo("Информация", "Недостаточно данных для анализа")
             return
 
-        dates = [r["date"] for r in meter["readings"]]
-        values = [r["value"] for r in meter["readings"]]
+        dates = [r[0] for r in readings]
+        values = [r[1] for r in readings]
 
         consumption = []
         for i in range(1, len(values)):
@@ -550,58 +714,61 @@ class HousingApp:
         self.report_text.config(yscrollcommand=scrollbar.set)
     
     def generate_payments_report(self):
-        total_balance = sum(acc["balance"] for acc in self.accounts)
-        subsidy_count = sum(1 for acc in self.accounts if acc["subsidy"])
+        accounts = self.execute_query("SELECT * FROM accounts", fetch=True)
+        total_balance = sum(acc[3] for acc in accounts)
+        subsidy_count = sum(1 for acc in accounts if acc[4])
         
         report = f"Отчет по платежам\nДата формирования: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
-        report += f"Всего лицевых счетов: {len(self.accounts)}\n"
+        report += f"Всего лицевых счетов: {len(accounts)}\n"
         report += f"Субсидии предоставлены: {subsidy_count} счетам\n"
         report += f"Общая сумма задолженности: {total_balance:.2f} руб.\n\n"
         
         report += "Топ-5 должников:\n"
-        debtors = sorted(self.accounts, key=lambda x: x["balance"], reverse=True)[:5]
+        debtors = sorted(accounts, key=lambda x: x[3], reverse=True)[:5]
         for i, debtor in enumerate(debtors, 1):
-            report += f"{i}. {debtor['address']} ({debtor['owner']}): {debtor['balance']:.2f} руб.\n"
+            report += f"{i}. {debtor[1]} ({debtor[2]}): {debtor[3]:.2f} руб.\n"
         
         self.report_text.delete(1.0, tk.END)
         self.report_text.insert(tk.END, report)
     
     def generate_requests_report(self):
-        open_count = sum(1 for req in self.requests if req["status"] == "Открыта")
-        in_progress_count = sum(1 for req in self.requests if req["status"] == "В работе")
-        closed_count = sum(1 for req in self.requests if req["status"] == "Закрыта")
+        requests = self.execute_query("SELECT * FROM requests", fetch=True)
+        open_count = sum(1 for req in requests if req[6] == "Открыта")
+        in_progress_count = sum(1 for req in requests if req[6] == "В работе")
+        closed_count = sum(1 for req in requests if req[6] == "Закрыта")
         
         report = f"Отчет по заявкам\nДата формирования: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
-        report += f"Всего заявок: {len(self.requests)}\n"
+        report += f"Всего заявок: {len(requests)}\n"
         report += f"Открытые: {open_count}\n"
         report += f"В работе: {in_progress_count}\n"
         report += f"Закрытые: {closed_count}\n\n"
         
-        if self.contractors:
+        contractors = self.execute_query("SELECT * FROM contractors", fetch=True)
+        if contractors:
             report += "Заявки по подрядчикам:\n"
-            for contractor in self.contractors:
-                count = sum(1 for req in self.requests if req.get("contractor") == contractor["name"])
-                report += f"{contractor['name']}: {count} заявок\n"
+            for contractor in contractors:
+                count = sum(1 for req in requests if req[7] == contractor[1])
+                report += f"{contractor[1]}: {count} заявок\n"
         
         self.report_text.delete(1.0, tk.END)
         self.report_text.insert(tk.END, report)
     
     def generate_meters_report(self):
-        meter_types = {}
-        for meter in self.meters:
-            if meter["type"] not in meter_types:
-                meter_types[meter["type"]] = 0
-            meter_types[meter["type"]] += 1
+        meters = self.execute_query("SELECT type, COUNT(*) FROM meters GROUP BY type", fetch=True)
         
         report = f"Отчет по счетчикам\nДата формирования: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
-        report += f"Всего счетчиков: {len(self.meters)}\n\n"
+        report += f"Всего счетчиков: {sum(m[1] for m in meters)}\n\n"
         
         report += "Количество по типам:\n"
-        for meter_type, count in meter_types.items():
+        for meter_type, count in meters:
             report += f"{meter_type}: {count}\n"
         
         self.report_text.delete(1.0, tk.END)
         self.report_text.insert(tk.END, report)
+
+    def __del__(self):
+        if hasattr(self, 'db_connection'):
+            self.db_connection.close()
 
 if __name__ == "__main__":
     root = tk.Tk()
