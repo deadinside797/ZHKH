@@ -1,5 +1,11 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox, filedialog
+from datetime import datetime
+import json
+import os
+from fpdf import FPDF
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 class HousingApp:
     def __init__(self, root):
@@ -120,7 +126,7 @@ class HousingApp:
         
         ttk.Button(dialog, text="Сохранить", command=save).grid(row=5, column=1, padx=5, pady=10, sticky=tk.E)
         
- def delete_account(self):
+    def delete_account(self):
         selected = self.accounts_tree.selection()
         if not selected:
             messagebox.showwarning("Ошибка", "Выберите счет для удаления")
@@ -258,7 +264,7 @@ class HousingApp:
                 request.get("contractor", "-")
             ))
 
-def add_request(self):
+    def add_request(self):
         dialog = tk.Toplevel(self.root)
         dialog.title("Добавить заявку")
         dialog.geometry("500x300")
@@ -314,7 +320,7 @@ def add_request(self):
                 return
 
 
-def assign_contractor(self):
+    def assign_contractor(self):
         selected = self.requests_tree.selection()
         if not selected:
             messagebox.showwarning("Ошибка", "Выберите заявку")
@@ -382,7 +388,7 @@ def assign_contractor(self):
 
         self.refresh_meters()
 
-def refresh_meters(self):
+    def refresh_meters(self):
         for item in self.meters_tree.get_children():
             self.meters_tree.delete(item)
             
@@ -403,7 +409,7 @@ def refresh_meters(self):
                 last_date
             ))
 
- def add_meter(self):
+    def add_meter(self):
         dialog = tk.Toplevel(self.root)
         dialog.title("Добавить счетчик")
         dialog.geometry("400x250")
@@ -443,7 +449,7 @@ def refresh_meters(self):
         
         ttk.Button(dialog, text="Сохранить", command=save).grid(row=4, column=1, padx=5, pady=10, sticky=tk.E)
     
-def add_meter_reading(self):
+    def add_meter_reading(self):
         selected = self.meters_tree.selection()
         if not selected:
             messagebox.showwarning("Ошибка", "Выберите счетчик")
@@ -484,7 +490,7 @@ def add_meter_reading(self):
         
         ttk.Button(dialog, text="Сохранить", command=save).pack(pady=10)
     
-def analyze_consumption(self):
+    def analyze_consumption(self):
         selected = self.meters_tree.selection()
         if not selected:
             messagebox.showwarning("Ошибка", "Выберите счетчик")
@@ -543,7 +549,7 @@ def analyze_consumption(self):
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.report_text.config(yscrollcommand=scrollbar.set)
     
-def generate_payments_report(self):
+    def generate_payments_report(self):
         total_balance = sum(acc["balance"] for acc in self.accounts)
         subsidy_count = sum(1 for acc in self.accounts if acc["subsidy"])
         
